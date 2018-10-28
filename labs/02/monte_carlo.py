@@ -15,7 +15,7 @@ if __name__ == "__main__":
     # Parse arguments
     import argparse
     parser = argparse.ArgumentParser()
-    parser.add_argument("--episodes", default=2000, type=int, help="Training episodes.")
+    parser.add_argument("--episodes", default=3000, type=int, help="Training episodes.")
     parser.add_argument("--render_each", default=None, type=int, help="Render some episodes.")
 
     parser.add_argument("--epsilon", default=0.1, type=float, help="Exploration factor.")
@@ -63,7 +63,7 @@ if __name__ == "__main__":
             counter[step[0]][step[1]] = counter[step[0]][step[1]] +  1
             value_function[step[0]][step[1]] = value_function[step[0]][step[1]] + (G - value_function[step[0]][step[1]]) / counter[step[0]][step[1]]
 
-        args.epsilon *= 0.9999999
+        args.epsilon *= 0.99999
 
     policy = [0] * env.states
 
