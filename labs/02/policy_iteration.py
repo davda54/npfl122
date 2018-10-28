@@ -58,20 +58,16 @@ if __name__ == "__main__":
 
             tmp_value_function = [0] * GridWorld.states
             for state in range(GridWorld.states):
-                tmp_value_function[state] = sum(
-                    [output[0] * (output[1] + args.gamma * value_function[output[2]]) for output in
-                     GridWorld.step(state, policy[state])])
+                tmp_value_function[state] = sum([output[0] * (output[1] + args.gamma * value_function[output[2]]) for output in GridWorld.step(state, policy[state])])
 
             value_function = tmp_value_function
 
         # policy improvement
         for state in range(GridWorld.states):
 
-            max_action = None;
-            max_value = -100
+            max_action = None; max_value = -100
             for action in range(len(GridWorld.actions)):
-                value = sum([output[0] * (output[1] + args.gamma * value_function[output[2]]) for output in
-                             GridWorld.step(state, action)])
+                value = sum([output[0] * (output[1] + args.gamma * value_function[output[2]]) for output in GridWorld.step(state, action)])
                 if value > max_value:
                     max_action = action
                     max_value = value
