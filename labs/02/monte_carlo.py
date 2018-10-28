@@ -1,6 +1,9 @@
 #!/usr/bin/env python3
+# 41729eed-1c9d-11e8-9de3-00505601122b
+# 4d4a7a09-1d33-11e8-9de3-00505601122b
 import numpy as np
 import random
+from numpy import inf
 
 import cart_pole_evaluator
 
@@ -11,10 +14,10 @@ if __name__ == "__main__":
     # Parse arguments
     import argparse
     parser = argparse.ArgumentParser()
-    parser.add_argument("--episodes", default=100000, type=int, help="Training episodes.")
-    parser.add_argument("--render_each", default=10000, type=int, help="Render some episodes.")
+    parser.add_argument("--episodes", default=2000, type=int, help="Training episodes.")
+    parser.add_argument("--render_each", default=None, type=int, help="Render some episodes.")
 
-    parser.add_argument("--epsilon", default=0.01, type=float, help="Exploration factor.")
+    parser.add_argument("--epsilon", default=0.1, type=float, help="Exploration factor.")
     parser.add_argument("--epsilon_final", default=None, type=float, help="Final exploration factor.")
     parser.add_argument("--gamma", default=1, type=float, help="Discounting factor.")
     args = parser.parse_args()
@@ -23,8 +26,8 @@ if __name__ == "__main__":
     env = cart_pole_evaluator.environment()
 
     # Initialize
-    value_function = [[0] * env.actions] * env.states
-    counter = [[0] * env.actions] * env.states
+    value_function = [[0] * env.actions for _ in range(env.states)]
+    counter = [[0] * env.actions for _ in range(env.states)]
 
     for _ in range(args.episodes):
 
@@ -39,11 +42,11 @@ if __name__ == "__main__":
             if random.uniform(0.0, 1.0) < args.epsilon:
                 action = random.randint(0, env.actions - 1)
             else:
-                max_action = None; max_value = -float('inf')
-                for action in range(env.actions):
-                    value = value_function[state][action]
+                max_action = None; max_value = -inf
+                for a in range(env.actions):
+                    value = value_function[state][a]
                     if value > max_value:
-                        max_action = action
+                        max_action = a
                         max_value = value
                 action = max_action
 
@@ -54,11 +57,12 @@ if __name__ == "__main__":
             state = next_state
 
         G = 0
-        for step in reversed(episode):
+        for step in episode[::-1]:
             G = args.gamma * G + step[2]
-            counter[step[0]][step[1]] += 1
-            value_function[step[0]][step[1]] += (G - value_function[step[0]][step[1]]) / counter[step[0]][step[1]]
+            counter[step[0]][step[1]] = counter[step[0]][step[1]] +  1
+            value_function[step[0]][step[1]] = value_function[step[0]][step[1]] + (G - value_function[step[0]][step[1]]) / counter[step[0]][step[1]]
 
+        args.epsilon *= 0.9999999
 
     policy = [0] * env.states
 
