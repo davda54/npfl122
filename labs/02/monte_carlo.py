@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 # 41729eed-1c9d-11e8-9de3-00505601122b
 # 4d4a7a09-1d33-11e8-9de3-00505601122b
+
 import numpy as np
 import random
 from numpy import inf
@@ -79,7 +80,7 @@ if __name__ == "__main__":
     # Perform last 100 evaluation episodes
     env.reset(start_evaluate = True)
 
-    for _ in range(args.episodes):
+    for _ in range(100):
 
         # Perform an evaluation episode
         state, done = env.reset(), False
