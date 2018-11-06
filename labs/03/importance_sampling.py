@@ -36,6 +36,15 @@ if __name__ == "__main__":
 
         # TODO: Update V using weighted importance sampling.
 
+        G = 0
+        W = 1
+        for step in episode[::-1]:
+            if step[1] not in [1,2]: break;
+            G += step[2]
+            C[step[0]] += W
+            V[step[0]] += W / C[step[0]] * (G - V[step[0]])
+            W *= 2
+
     # Print the final value function V
     for row in V.reshape(4, 4):
         print(" ".join(["{:5.2f}".format(x) for x in row]))
