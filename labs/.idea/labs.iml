@@ -5,8 +5,9 @@
       <sourceFolder url="file://$MODULE_DIR$/01" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/03" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/02" isTestSource="false" />
+      <excludeFolder url="file://$MODULE_DIR$/venv" />
     </content>
-    <orderEntry type="inheritedJdk" />
+    <orderEntry type="jdk" jdkName="Python 3.4 (labs)" jdkType="Python SDK" />
     <orderEntry type="sourceFolder" forTests="false" />
   </component>
   <component name="TestRunnerService">
