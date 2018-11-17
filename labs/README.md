@@ -12,7 +12,16 @@ the packages inside it by running
 `VENV_DIR/bin/pip3 install tensorflow==1.11.0 gym==0.9.5 scipy box2d-py atari-py`.
 On Windows, you can use third-party precompiled versions of
 [box2d-py](https://www.lfd.uci.edu/~gohlke/pythonlibs/)
-and [atary-py](https://github.com/Kojoley/atari-py/releases).
+and [atari-py](https://github.com/Kojoley/atari-py/releases).
+
+### Submitting Data Files to ReCodEx
+
+Even if [ReCodEx](https://recodex.mff.cuni.cz/) allows submitting data files
+beside Python sources, the data files are not available during evaluation.
+Therefore, in order to submit models, you need to embed them in Python sources.
+You can use [the `embed.py` script](https://github.com/ufal/npfl122/blob/master/labs/embed.py),
+which compressed and embeds given files and directories into a Python module
+providing an `extract()` method.
 
 ### Teamwork
 
