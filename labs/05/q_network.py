@@ -39,6 +39,7 @@ class Network:
     def train(self, states, q_values):
         self.session.run(self.training, {self.states: states, self.q_values: q_values})
 
+
 if __name__ == "__main__":
     # Fix random seed
     np.random.seed(42)

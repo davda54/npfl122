@@ -6,9 +6,10 @@ import gym
 import numpy as np
 
 class GymEnvironment:
-    def __init__(self, env, separators=None, tiles=None):
+    def __init__(self, env, separators=None, tiles=None, verbose=True):
         self._env = gym.make(env)
         self._env.seed(42)
+        self.verbose = verbose
 
         self._separators = separators
         self._tiles = tiles
@@ -100,7 +101,7 @@ class GymEnvironment:
             self._episode_ended = True
             self._episode_returns.append(self._episode_return)
 
-            if self.episode % 10 == 0:
+            if self.episode % 10 == 0 and self.verbose:
                 print("Episode {}, mean 100-episode return {}".format(
                     self.episode, np.mean(self._episode_returns[-100:])), file=sys.stderr)
             if self._evaluating_from is not None and self.episode >= self._evaluating_from + 100:
