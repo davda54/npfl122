@@ -22,10 +22,14 @@ class Network:
             # - add a fully connected layer of size args.hidden_layer and ReLU activation
             # - add a fully connected layer with num_actions and no activation, computing `logits`
             # - compute `self.probabilities` as tf.nn.softmax of `logits`
+            hidden = tf.layers.dense(self.states, args.hidden_layer, activation=tf.nn.relu)
+            logits = tf.layers.dense(hidden, num_actions)
+            self.probabilities = tf.nn.softmax(logits, axis=1)
 
             # TODO: Training
             # - compute `loss` as sparse softmax cross entropy of `self.actions` and `logits`,
             # weighted by `self.returns` (using `weights` param)
+            loss = tf.losses.sparse_softmax_cross_entropy(self.actions, logits, weights=self.returns)
 
             global_step = tf.train.create_global_step()
             self.training = tf.train.AdamOptimizer(args.learning_rate).minimize(loss, global_step=global_step, name="training")
@@ -74,8 +78,10 @@ if __name__ == "__main__":
                     env.render()
 
                 # TODO: Compute action probabilities using `network.predict` and current `state`
+                action_probabilities = network.predict([state])[0]
 
                 # TODO: Choose `action` according to `probabilities` distribution (np.random.choice can be used)
+                action = np.random.choice(np.arange(env.actions), p=action_probabilities)
 
                 next_state, reward, done, _ = env.step(action)
 
@@ -86,6 +92,18 @@ if __name__ == "__main__":
                 state = next_state
 
             # TODO: Compute returns by summing rewards (with discounting)
+            returns = []
+            discount = 1
+            G = 0
+
+            for t in range(len(states) - 1, -1, -1):
+                # G = G * discount + rewards[t]
+                # discount *= args.gamma
+                G = sum(rewards[t + 1:len(states)])
+                action_probabilities = network.predict([states[t]])[0]
+                returns.append(G / action_probabilities[actions[t]])
+
+            returns.reverse()
 
             # TODO: Add states, actions and returns to the training batch
 

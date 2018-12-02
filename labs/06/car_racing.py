@@ -52,9 +52,15 @@ class Network:
                 else:
                     output = tf.layers.conv2d(inputs=output, filters=filters, kernel_size=[kernel, kernel], strides=stride, padding=args.padding)
                     output = tf.nn.relu(output)
+
             output = tf.layers.flatten(output)
-            output = tf.layers.dense(output, hidden_size, activation=tf.nn.relu)
-            self.predicted_values = tf.layers.dense(output, num_actions, activation=None)
+            v_dense = tf.layers.dense(output, hidden_size, activation=tf.nn.relu)
+            a_dense = tf.layers.dense(output, hidden_size, activation=tf.nn.relu)
+
+            v = tf.layers.dense(v_dense, 1, activation=None)
+            a = tf.layers.dense(a_dense, num_actions, activation=None)
+
+            self.predicted_values = v + a - tf.reduce_mean(a, 1, keep_dims=True)
 
             loss = tf.losses.mean_squared_error(self.returns, tf.boolean_mask(self.predicted_values, tf.one_hot(self.actions, num_actions)))
             global_step = tf.train.create_global_step()
@@ -113,7 +119,7 @@ if __name__ == "__main__":
     Transition = collections.namedtuple("Transition", ["prev_state", "state", "action", "reward", "done", "next_state"])
 
     # Create network
-    conv_layers = [[8, 3, 1], [0, 2, 2], [16, 3, 1], [0, 2, 2]]
+    conv_layers = [[8, 3, 1], [0, 2, 2], [16, 3, 1], [0, 2, 2], [32, 3, 1], [0, 2, 2]]
     state_shape = [96, 96, 1]
     hidden_size = 32
 
