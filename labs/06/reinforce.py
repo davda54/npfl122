@@ -50,11 +50,11 @@ if __name__ == "__main__":
     # Parse arguments
     import argparse
     parser = argparse.ArgumentParser()
-    parser.add_argument("--batch_size", default=None, type=int, help="Number of episodes to train on.")
-    parser.add_argument("--episodes", default=None, type=int, help="Training episodes.")
+    parser.add_argument("--batch_size", default=32, type=int, help="Number of episodes to train on.")
+    parser.add_argument("--episodes", default=2000, type=int, help="Training episodes.")
     parser.add_argument("--gamma", default=1.0, type=float, help="Discounting factor.")
     parser.add_argument("--hidden_layer", default=20, type=int, help="Size of hidden layer.")
-    parser.add_argument("--learning_rate", default=None, type=float, help="Learning rate.")
+    parser.add_argument("--learning_rate", default=0.001, type=float, help="Learning rate.")
     parser.add_argument("--render_each", default=0, type=int, help="Render some episodes.")
     parser.add_argument("--threads", default=1, type=int, help="Maximum number of threads to use.")
     args = parser.parse_args()
@@ -66,55 +66,53 @@ if __name__ == "__main__":
     network = Network(threads=args.threads)
     network.construct(args, env.state_shape, env.actions)
 
+    batch_states, batch_actions, batch_returns = [], [], []
+
     # Training
-    for _ in range(args.episodes // args.batch_size):
-        batch_states, batch_actions, batch_returns = [], [], []
-        for _ in range(args.batch_size):
-            # Perform episode
-            states, actions, rewards = [], [], []
-            state, done = env.reset(), False
-            while not done:
-                if args.render_each and env.episode > 0 and env.episode % args.render_each == 0:
-                    env.render()
+    for _ in range(args.episodes):
+        # Perform episode
+        states, actions, rewards = [], [], []
+        state, done = env.reset(), False
+        while not done:
+            if args.render_each and env.episode > 0 and env.episode % args.render_each == 0:
+                env.render()
 
-                # TODO: Compute action probabilities using `network.predict` and current `state`
-                action_probabilities = network.predict([state])[0]
+            # TODO: Compute action probabilities using `network.predict` and current `state`
+            action_probabilities = network.predict([state])[0]
 
-                # TODO: Choose `action` according to `probabilities` distribution (np.random.choice can be used)
-                action = np.random.choice(np.arange(env.actions), p=action_probabilities)
+            # TODO: Choose `action` according to `probabilities` distribution (np.random.choice can be used)
+            action = np.random.choice(np.arange(env.actions), p=action_probabilities)
 
-                next_state, reward, done, _ = env.step(action)
+            next_state, reward, done, _ = env.step(action)
 
-                states.append(state)
-                actions.append(action)
-                rewards.append(reward)
+            states.append(state)
+            actions.append(action)
+            rewards.append(reward)
 
-                state = next_state
+            state = next_state
 
-            # TODO: Compute returns by summing rewards (with discounting)
-            returns = []
-            discount = 1
-            G = 0
+        # TODO: Compute returns by summing rewards (with discounting)
+        returns = [sum(rewards[i:]) for i in range(len(states))]
 
-            for t in range(len(states) - 1, -1, -1):
-                # G = G * discount + rewards[t]
-                # discount *= args.gamma
-                G = sum(rewards[t + 1:len(states)])
-                action_probabilities = network.predict([states[t]])[0]
-                returns.append(G / action_probabilities[actions[t]])
+        # TODO: Add states, actions and returns to the training batch
+        batch_states.extend(states)
+        batch_actions.extend(actions)
+        batch_returns.extend(returns)
 
-            returns.reverse()
+        while len(batch_states) >= args.batch_size:
+            # Train using the generated batch
+            network.train(batch_states[:args.batch_size-1], batch_actions[:args.batch_size-1], batch_returns[:args.batch_size-1])
+            batch_states = batch_states[args.batch_size:]
+            batch_actions = batch_actions[args.batch_size:]
+            batch_returns = batch_returns[args.batch_size:]
 
-            # TODO: Add states, actions and returns to the training batch
-
-        # Train using the generated batch
-        network.train(batch_states, batch_actions, batch_returns)
 
     # Final evaluation
     while True:
         state, done = env.reset(True), False
         while not done:
             # TODO: Compute action `probabilities` using `network.predict` and current `state`
+            probabilities = network.predict([state])[0]
 
             # Choose greedy action this time
             action = np.argmax(probabilities)

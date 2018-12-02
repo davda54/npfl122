@@ -54,17 +54,22 @@ class Network:
                     output = tf.nn.relu(output)
 
             output = tf.layers.flatten(output)
-            v_dense = tf.layers.dense(output, hidden_size, activation=tf.nn.relu)
-            a_dense = tf.layers.dense(output, hidden_size, activation=tf.nn.relu)
+            output = tf.layers.dense(output, hidden_size, activation=tf.nn.relu)
+            self.predicted_values = tf.layers.dense(output, num_actions, activation=None)
 
-            v = tf.layers.dense(v_dense, 1, activation=None)
-            a = tf.layers.dense(a_dense, num_actions, activation=None)
-
-            self.predicted_values = v + a - tf.reduce_mean(a, 1, keep_dims=True)
+            # v_dense = tf.layers.dense(output, hidden_size, activation=tf.nn.relu)
+            # a_dense = tf.layers.dense(output, hidden_size, activation=tf.nn.relu)
+            #
+            # v = tf.layers.dense(v_dense, 1, activation=None)
+            # a = tf.layers.dense(a_dense, num_actions, activation=None)
+            #
+            # self.predicted_values = v + a - tf.reduce_mean(a, 1, keep_dims=True)
 
             loss = tf.losses.mean_squared_error(self.returns, tf.boolean_mask(self.predicted_values, tf.one_hot(self.actions, num_actions)))
             global_step = tf.train.create_global_step()
             self.training = tf.train.AdamOptimizer(args.learning_rate).minimize(loss, global_step=global_step, name="training")
+
+            self.saver = tf.train.Saver()
 
             # Initialize variables
             self.session.run(tf.global_variables_initializer())
@@ -80,6 +85,11 @@ class Network:
     def train(self, prev_states, states, actions, returns):
         self.session.run(self.training, {self.prev_states: prev_states, self.states: states, self.actions: actions, self.returns: returns})
 
+    def save(self, path):
+        self.saver.save(self.session, path, write_meta_graph=False, write_state=False)
+
+    def load(self, path):
+        self.saver.restore(self.session, path)
 
 if __name__ == "__main__":
     # Fix random seed
@@ -89,10 +99,10 @@ if __name__ == "__main__":
     import argparse
 
     parser = argparse.ArgumentParser()
-    parser.add_argument("--episodes", default=1000, type=int, help="Training episodes.")
+    parser.add_argument("--episodes", default=2000, type=int, help="Training episodes.")
     parser.add_argument("--frame_skip", default=5, type=int, help="Repeat actions for given number of frames.")
     parser.add_argument("--frame_history", default=2, type=int, help="Number of past frames to stack together.")
-    parser.add_argument("--render_each", default=50, type=int, help="Render some episodes.")
+    parser.add_argument("--render_each", default=None, type=int, help="Render some episodes.")
     parser.add_argument("--threads", default=4, type=int, help="Maximum number of threads to use.")
 
     parser.add_argument("--alpha", default=None, type=float, help="Learning rate.")
@@ -132,7 +142,7 @@ if __name__ == "__main__":
 
     epsilon = args.epsilon
     step = 0
-    while True:
+    for _ in range(args.episodes):
         # Perform episode
         state, done = env.reset(), False
         state = rgb2gray(state, state_shape)
@@ -162,7 +172,8 @@ if __name__ == "__main__":
                     prev_states.append(p)
                     states.append(s)
                     actions.append(a)
-                    q_values.append(r + (0 if d else max(estimator.predict([s], [n])[0])))
+                    q_values.append(r + (0 if d else estimator.predict([s], [n])[0, np.argmax(network.predict([s], [n])[0])]))
+                    #q_values.append(r + (0 if d else max(estimator.predict([s], [n])[0])))
 
                 network.train(prev_states, states, actions, q_values)
 
@@ -174,3 +185,5 @@ if __name__ == "__main__":
 
         if args.epsilon_final:
             epsilon = np.exp(np.interp(env.episode + 1, [0, args.episodes], [np.log(args.epsilon), np.log(args.epsilon_final)]))
+
+    network.save("car_racing/model")
