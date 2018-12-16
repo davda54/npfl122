@@ -195,4 +195,3 @@ if __name__ == "__main__":
                     checkpoint_path = "cart_pole_pixels/model_{s}_{t}".format(s=int(best_score), t=timestamp)
                     print("Best score improved to {s}, saving {p}".format(s=best_score, p=checkpoint_path))
                     network.save(checkpoint_path)
-
