@@ -83,6 +83,7 @@ class Network:
             self.prev_states = tf.placeholder(tf.float32, [None] + state_shape)
             self.actions = tf.placeholder(tf.int32, [None])
             self.returns = tf.placeholder(tf.float32, [None])
+            self.weights = tf.placeholder(tf.float32, [None])
 
             input = tf.concat([tf.image.resize_images(self.states, [32, 32]), tf.image.resize_images(self.prev_states, [32, 32])], axis=3)
 
@@ -106,7 +107,7 @@ class Network:
             #
             # self.predicted_values = v + a - tf.reduce_mean(a, 1, keep_dims=True)
 
-            loss = tf.losses.mean_squared_error(self.returns, tf.boolean_mask(self.predicted_values, tf.one_hot(self.actions, num_actions)))
+            loss = tf.losses.mean_squared_error(self.returns, tf.boolean_mask(self.predicted_values, tf.one_hot(self.actions, num_actions)), weights=self.weights)
             global_step = tf.train.create_global_step()
             self.training = tf.train.AdamOptimizer(args.learning_rate).minimize(loss, global_step=global_step, name="training")
 
@@ -123,8 +124,8 @@ class Network:
     def predict(self, prev_states, states):
         return self.session.run(self.predicted_values, {self.prev_states: prev_states, self.states: states})
 
-    def train(self, prev_states, states, actions, returns):
-        self.session.run(self.training, {self.prev_states: prev_states, self.states: states, self.actions: actions, self.returns: returns})
+    def train(self, prev_states, states, actions, returns, weights):
+        self.session.run(self.training, {self.prev_states: prev_states, self.states: states, self.actions: actions, self.returns: returns, self.weights: weights})
 
     def save(self, path):
         self.saver.save(self.session, path, write_meta_graph=False, write_state=False)
@@ -158,7 +159,7 @@ if __name__ == "__main__":
     parser.add_argument("--buffer_size", default=100000, type=int)
 
     parser.add_argument("--replay_priority", default=0.6, type=float)
-    parser.add_argument("--replay_beta", default=0.5, type=float)
+    parser.add_argument("--replay_beta", default=0.01, type=float)
     parser.add_argument("--replay_beta_final", default=1.0, type=float)
 
     parser.add_argument("--network_copy_steps", default=1000, type=int)
@@ -168,7 +169,8 @@ if __name__ == "__main__":
     # Create the environment
     env = car_racing_evaluator.environment()
     actions_mapping = [[-1, 0, 0], [0, 0, 0], [1, 0, 0],
-                       [0, 1, 0], [0, 0, 1]]
+                       [-1, 1, 0], [0, 1, 0], [1, 1, 0],
+                       [0, 0, 1]]
 
     # Transition definition
     Transition = collections.namedtuple("Transition", ["prev_state", "state", "action", "reward", "done", "next_state"])
@@ -187,7 +189,7 @@ if __name__ == "__main__":
     #replay_buffer = ReplayBuffer(args.buffer_size, args.batch_size)
 
     epsilon = args.epsilon
-    beta = args.replay_beta_final
+    beta = args.replay_beta
     step = 0
     best_score = -100
 
@@ -235,7 +237,7 @@ if __name__ == "__main__":
 
                     q_values.append(q_value)
 
-                network.train(prev_states, states, actions, q_values)
+                network.train(prev_states, states, actions, q_values, weights)
 
                 network_state_predictions = network.predict(prev_states, states)
                 td_errors = []
@@ -254,6 +256,8 @@ if __name__ == "__main__":
 
         if args.epsilon_final:
             epsilon = np.exp(np.interp(episode + 1, [0, args.episodes], [np.log(args.epsilon), np.log(args.epsilon_final)]))
+        if args.replay_beta_final:
+            beta = np.exp(np.interp(episode + 1, [0, args.episodes], [np.log(args.replay_beta), np.log(args.replay_beta_final)]))
 
         if episode > 100 and episode % 50 == 0:
             mean_return = 0

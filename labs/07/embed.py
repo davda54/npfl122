@@ -12,14 +12,14 @@ import tarfile
 parser = argparse.ArgumentParser()
 parser.add_argument("--output", default="embedded_data.py", type=str,
                     help="Name of output Python file with embedded data.")
-parser.add_argument("path", type=str, nargs="+",
-                    help="Path to files and directories to be embedded.")
 args = parser.parse_args()
+
+paths=['cart_pole_pixels/davda_model_499.51.data-00000-of-00001', 'cart_pole_pixels/davda_model_500.data-00000-of-00001', 'cart_pole_pixels/davda_model_500.index', 'cart_pole_pixels/davda_model_499.51.index']
 
 print("Compressing given paths...", file=sys.stderr, end="")
 tar_data = io.BytesIO()
 with tarfile.open(fileobj=tar_data, mode="w:xz") as tar_file:
-    for path in args.path:
+    for path in paths:
         tar_file.add(path)
 print("done.", file=sys.stderr)
 
