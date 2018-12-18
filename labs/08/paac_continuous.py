@@ -48,7 +48,7 @@ class Network:
             # and computed `self.mus` and `self.sds`.
             action_distribution = tf.distributions.Normal(loc=self.mus, scale=self.sds)
 
-            # TODO(reinforce_with_baseline): Compute `self.values`, starting with self.states and
+            # TODO(reinforce_with_baseline): Compute `self.values`, starting with `states` and
             # - add a fully connected layer of size args.hidden_layer and ReLU activation
             # - add a fully connected layer with 1 output and no activation
             # - modify the result to have shape `[batch_size]` (you can use for example `[:, 0]`)
@@ -129,7 +129,7 @@ if __name__ == "__main__":
 
             # TODO: Compute return estimates by
             # - extracting next_states from steps
-            # - computing value function approximatin in next_states
+            # - computing value function approximation in next_states
             # - estimating returns by reward + (0 if done else args.gamma * next_state_value)
             next_returns = network.predict_values(next_states)
             returns = [rewards[i] + (not done[i]) * next_returns[i] for i in range(args.workers)]
