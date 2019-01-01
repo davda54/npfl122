@@ -56,20 +56,38 @@ class Network:
                 critic_hidden = tf.layers.dense(critic_hidden, args.hidden_layer, activation=tf.nn.relu)
                 return tf.layers.dense(critic_hidden, 1)[:, 0]
 
-            with tf.variable_scope("critic"):
-                values_of_given = critic(self.states, self.actions)
+            with tf.variable_scope("critic_1"):
+                values_of_given_1 = critic(self.states, self.actions)
 
-            with tf.variable_scope("critic", reuse=True):
-                values_of_predicted = critic(self.states, self.mus)
+            with tf.variable_scope("critic_1", reuse=True):
+                values_of_predicted_1 = critic(self.states, self.mus)
 
-            with tf.variable_scope("target_critic"):
-                self.target_values = critic(self.next_states, target_actions)
+            with tf.variable_scope("target_critic_1"):
+                self.target_values_1 = critic(self.next_states, target_actions)
+
+            with tf.variable_scope("critic_2"):
+                values_of_given_2 = critic(self.states, self.actions)
+
+            with tf.variable_scope("critic_2", reuse=True):
+                values_of_predicted_2 = critic(self.states, self.mus)
+
+            with tf.variable_scope("target_critic_2"):
+                self.target_values_2 = critic(self.next_states, target_actions)
 
             # Update ops
-            update_target_ops = []
-            for target_var, var in zip(tf.global_variables("target_actor") + tf.global_variables("target_critic"),
-                                       tf.global_variables("actor") + tf.global_variables("critic")):
-                update_target_ops.append(target_var.assign((1.-args.target_tau) * target_var + args.target_tau * var))
+            update_all_target_ops = []
+            for target_var, var in zip(tf.global_variables("target_actor") + tf.global_variables("target_critic_1") + tf.global_variables("target_critic_2"),
+                                       tf.global_variables("actor") + tf.global_variables("critic_1") + tf.global_variables("critic_2")):
+                update_all_target_ops.append(target_var.assign((1.-args.target_tau) * target_var + args.target_tau * var))
+
+            # Update ops
+            update_critic_target_ops = []
+            for target_var, var in zip(tf.global_variables("target_critic_1") + tf.global_variables("target_critic_2"),
+                                       tf.global_variables("critic_1") + tf.global_variables("critic_2")):
+                update_critic_target_ops.append(target_var.assign((1. - args.target_tau) * target_var + args.target_tau * var))
+
+            # Saver for the inference network
+            self.saver = tf.train.Saver()
 
             # TODO: Training
             # Define actor_loss and critic loss and then:
@@ -80,21 +98,29 @@ class Network:
             # - update target network variables
             # You can group several operations into one using `tf.group`.
 
-            global_step = tf.train.create_global_step()
-            optimizer = tf.train.AdamOptimizer(args.learning_rate)
+            critic_step_1, critic_step_2 = tf.Variable(0, trainable=False, name='critic_step_1'), tf.Variable(0, trainable=False, name='critic_step_2')
+            critic_optimizer = tf.train.AdamOptimizer(args.critic_learning_rate)
+            actor_step = tf.Variable(0, trainable=False, name='actor_step')
+            actor_optimizer = tf.train.AdamOptimizer(args.actor_learning_rate)
 
-            returns = self.rewards + tf.where(self.done, tf.zeros_like(self.target_values), self.target_values)
-            critic_loss = tf.losses.mean_squared_error(tf.stop_gradient(returns), values_of_given)
-            critic_training = optimizer.minimize(critic_loss, global_step=global_step)
+            returns = self.rewards + tf.where(self.done, tf.zeros_like(self.target_values_1), tf.minimum(self.target_values_1, self.target_values_2))
 
-            actor_loss = -tf.reduce_mean(values_of_predicted)
+            critic_loss_1 = tf.losses.mean_squared_error(tf.stop_gradient(returns), values_of_given_1)
+            critic_loss_2 = tf.losses.mean_squared_error(tf.stop_gradient(returns), values_of_given_2)
+            self.critic_training = tf.group([critic_optimizer.minimize(critic_loss_1, global_step=critic_step_1),
+                                             critic_optimizer.minimize(critic_loss_2, global_step=critic_step_2)])
+
+            actor_loss = -tf.reduce_mean(values_of_predicted_1)
             actor_train_vars = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, 'actor')
-            actor_training = optimizer.minimize(actor_loss, var_list=actor_train_vars, global_step=global_step)
+            actor_training = actor_optimizer.minimize(actor_loss, var_list=actor_train_vars, global_step=actor_step)
 
-            self.training = tf.group(critic_training, actor_training)
+            self.training = tf.group(self.critic_training, actor_training)
+
+            with tf.control_dependencies([self.critic_training]):
+                self.target_critic_updating = tf.group(update_critic_target_ops)
 
             with tf.control_dependencies([self.training]):
-                self.target_updating = tf.group(update_target_ops)
+                self.target_updating = tf.group(update_all_target_ops)
 
             # Initialize variables
             self.session.run(tf.global_variables_initializer())
@@ -104,6 +130,20 @@ class Network:
 
     def train(self, states, next_states, actions, rewards, done):
         self.session.run([self.training, self.target_updating], {self.states: states, self.next_states: next_states, self.actions: actions, self.rewards: rewards, self.done: done})
+
+    def critic_train(self, states, next_states, actions, rewards, done):
+        self.session.run([self.critic_training, self.target_critic_updating], {self.states: states, self.next_states: next_states, self.actions: actions, self.rewards: rewards, self.done: done})
+
+    def save(self, path):
+        self.saver.save(self.session, path, write_meta_graph=False, write_state=False)
+
+    def load(self, path):
+        self.saver.restore(self.session, path)
+
+    def copy_variables_from(self, other):
+        for variable, other_variable in zip(self.session.graph.get_collection(tf.GraphKeys.GLOBAL_VARIABLES),
+                                            other.session.graph.get_collection(tf.GraphKeys.GLOBAL_VARIABLES)):
+            variable.load(other_variable.eval(other.session), self.session)
 
 
 class OrnsteinUhlenbeckNoise:
@@ -134,14 +174,16 @@ if __name__ == "__main__":
     parser.add_argument("--env", default="BipedalWalker-v2", type=str, help="Environment.")
     parser.add_argument("--evaluate_each", default=90, type=int, help="Evaluate each number of episodes.")
     parser.add_argument("--evaluate_for", default=10, type=int, help="Evaluate for number of batches.")
-    parser.add_argument("--noise_sigma", default=0.2, type=float, help="UB noise sigma.")
+    parser.add_argument("--noise_sigma", default=0.15, type=float, help="UB noise sigma.")
     parser.add_argument("--noise_theta", default=0.15, type=float, help="UB noise theta.")
     parser.add_argument("--gamma", default=1.0, type=float, help="Discounting factor.")
     parser.add_argument("--hidden_layer", default=96, type=int, help="Size of hidden layer.")
-    parser.add_argument("--learning_rate", default=0.001, type=float, help="Learning rate.")
+    parser.add_argument("--critic_learning_rate", default=0.001, type=float, help="Critic learning rate.")
+    parser.add_argument("--actor_learning_rate", default=0.001, type=float, help="Actor learning rate.")
     parser.add_argument("--render_each", default=100, type=int, help="Render some episodes.")
     parser.add_argument("--target_tau", default=0.005, type=float, help="Target network update weight.")
     parser.add_argument("--threads", default=4, type=int, help="Maximum number of threads to use.")
+    parser.add_argument("--d", default=2, type=int, help="Train actor each *d* steps.")
     args = parser.parse_args()
 
     # Create the environment
@@ -171,6 +213,8 @@ if __name__ == "__main__":
         return rewards
 
     noise = OrnsteinUhlenbeckNoise(env.action_shape[0], 0., args.noise_theta, args.noise_sigma)
+    best_score = 0
+    i = 0
 
     while True:
         # Training
@@ -189,9 +233,13 @@ if __name__ == "__main__":
                     states, actions, rewards, dones, next_states = zip(*[replay_buffer[i] for i in batch])
                     rewards = [r if r > -10 else -10 for r in rewards]
 
-                    network.train(states, next_states, actions, rewards, dones)
+                    if i % args.d == 0:
+                        network.train(states, next_states, actions, rewards, dones)
+                    else:
+                        network.critic_train(states, next_states, actions, rewards, dones)
 
                 state = next_state
+                i += 1
 
         # Evaluation
         returns = []
@@ -201,9 +249,11 @@ if __name__ == "__main__":
         average_return = np.mean(returns)
         print("Evaluation of {} episodes: {}".format(args.evaluate_for, np.mean(returns)))
 
-        # if average_return > -180:
-        #     while True:
-        #         evaluate_episode(True)
+        if average_return > best_score or average_return > 300:
+            best_score = average_return
+            checkpoint_path = "walker/model_{s}".format(s=int(best_score))
+            print("Best score improved to {s}, saving {p}".format(s=best_score, p=checkpoint_path))
+            network.save(checkpoint_path)
 
 
 
