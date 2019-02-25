@@ -146,44 +146,27 @@ class Network:
             variable.load(other_variable.eval(other.session), self.session)
 
 
-class OrnsteinUhlenbeckNoise:
-    """Ornstein-Uhlenbeck process."""
-
-    def __init__(self, shape, mu, theta, sigma):
-        self.mu = mu * np.ones(shape)
-        self.theta = theta
-        self.sigma = sigma
-        self.reset()
-
-    def reset(self):
-        self.state = np.copy(self.mu)
-
-    def sample(self):
-        self.state += self.theta * (self.mu - self.state) + np.random.normal(scale=self.sigma, size=self.state.shape)
-        return self.state
-
-
 if __name__ == "__main__":
     # Fix random seed
-    np.random.seed(42)
+    np.random.seed(1)
 
     # Parse arguments
     import argparse
     parser = argparse.ArgumentParser()
+    parser.add_argument("--path", default="walker_hardcore/model_115", type=str)
     parser.add_argument("--batch_size", default=128, type=int, help="Batch size.")
     parser.add_argument("--env", default="BipedalWalkerHardcore-v2", type=str, help="Environment.")
     parser.add_argument("--evaluate_each", default=90, type=int, help="Evaluate each number of episodes.")
-    parser.add_argument("--evaluate_for", default=20, type=int, help="Evaluate for number of batches.")
-    parser.add_argument("--noise_sigma", default=0.1, type=float, help="UB noise sigma.")
+    parser.add_argument("--evaluate_for", default=10, type=int, help="Evaluate for number of batches.")
+    parser.add_argument("--noise_sigma", default=0.15, type=float, help="UB noise sigma.")
     parser.add_argument("--noise_theta", default=0.15, type=float, help="UB noise theta.")
     parser.add_argument("--gamma", default=1.0, type=float, help="Discounting factor.")
     parser.add_argument("--hidden_layer", default=256, type=int, help="Size of hidden layer.")
-    parser.add_argument("--critic_learning_rate", default=0.0001, type=float, help="Critic learning rate.")
-    parser.add_argument("--actor_learning_rate", default=0.0001, type=float, help="Actor learning rate.")
-    parser.add_argument("--render_each", default=100, type=int, help="Render some episodes.")
+    parser.add_argument("--critic_learning_rate", default=0.001, type=float, help="Critic learning rate.")
+    parser.add_argument("--actor_learning_rate", default=0.001, type=float, help="Actor learning rate.")
+    parser.add_argument("--render_each", default=1, type=int, help="Render some episodes.")
     parser.add_argument("--target_tau", default=0.005, type=float, help="Target network update weight.")
-    parser.add_argument("--threads", default=2, type=int, help="Maximum number of threads to use.")
-    parser.add_argument("--max_steps", default=2000, type=int)
+    parser.add_argument("--threads", default=4, type=int, help="Maximum number of threads to use.")
     parser.add_argument("--d", default=2, type=int, help="Train actor each *d* steps.")
     args = parser.parse_args()
 
@@ -195,79 +178,23 @@ if __name__ == "__main__":
     # Construct the network
     network = Network(threads=args.threads)
     network.construct(args, env.state_shape, env.action_shape[0], action_lows, action_highs)
-
-    #network.load('walker_hardcore/model_68')
-
-    # Replay memory; maxlen parameter can be passed to deque for a size limit,
-    # which we however do not need in this simple task.
-    replay_buffer = collections.deque(maxlen=500000)
-    Transition = collections.namedtuple("Transition", ["state", "action", "reward", "done", "next_state"])
+    network.load(args.path)
 
     def evaluate_episode(evaluating=False):
         rewards = 0
         state, done = env.reset(evaluating), False
         while not done:
-            if args.render_each and env.episode > 0 and env.episode % args.render_each == 90:
+            if args.render_each and env.episode % args.render_each == 0:
                 env.render()
 
             action = network.predict_actions([state])[0]
             state, reward, done, _ = env.step(action)
             rewards += reward
+
         return rewards
 
-    noise = OrnsteinUhlenbeckNoise(env.action_shape[0], 0., args.noise_theta, args.noise_sigma)
-    best_score = 0
-
-    noise_sigma = args.noise_sigma
-    episodes = 0
-
     while True:
-        # Training
-        for _ in range(args.evaluate_each):
-            state, done = env.reset(), False
-            noise.reset()
-
-            steps = 0
-
-            while not done:
-                action = network.predict_actions([state])[0] + np.random.normal(0, noise_sigma, size=env.action_shape)
-                next_state, reward, done, _ = env.step(action)
-
-                if steps >= args.max_steps and not done:
-                    done = True
-                    reward -= 100
-
-                replay_buffer.append(Transition(state, action, reward, done, next_state))
-
-                # If the replay_buffer is large enough, perform training
-                if len(replay_buffer) >= args.batch_size:
-                    batch = np.random.choice(len(replay_buffer), size=args.batch_size, replace=False)
-                    states, actions, rewards, dones, next_states = zip(*[replay_buffer[i] for i in batch])
-                    rewards = [r if r > -7 else -7 for r in rewards]
-
-                    if steps % args.d == 0:
-                        network.train(states, next_states, actions, rewards, dones)
-                    else:
-                        network.critic_train(states, next_states, actions, rewards, dones)
-
-                state = next_state
-                steps += 1
-
-            episodes += 1
-
-        # Evaluation
-        returns = []
-        for _ in range(args.evaluate_for):
-            returns.append(evaluate_episode())
-
-        average_return = np.mean(returns)
-        print("Evaluation of {} episodes: {}".format(args.evaluate_for, np.mean(returns)))
-
-        if average_return > best_score or average_return > 300:
-            best_score = average_return
-            checkpoint_path = "walker_hardcore/model_{s}".format(s=int(best_score))
-            print("Best score improved to {s}, saving {p}".format(s=best_score, p=checkpoint_path))
-            network.save(checkpoint_path)
+        evaluate_episode(True)
 
 
 

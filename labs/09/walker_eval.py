@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
-import collections
+#
+# 41729eed-1c9d-11e8-9de3-00505601122b
+# 4d4a7a09-1d33-11e8-9de3-00505601122b
 
 import numpy as np
 import tensorflow as tf
-
+import embedded_data
 import gym_evaluator
 
 class Network:
@@ -165,7 +167,7 @@ class OrnsteinUhlenbeckNoise:
 
 if __name__ == "__main__":
     # Fix random seed
-    np.random.seed(42)
+    # np.random.seed(42)
 
     # Parse arguments
     import argparse
@@ -187,87 +189,34 @@ if __name__ == "__main__":
     parser.add_argument("--d", default=2, type=int, help="Train actor each *d* steps.")
     args = parser.parse_args()
 
+    embedded_data.extract()
+
     # Create the environment
     env = gym_evaluator.GymEnvironment(args.env)
     assert len(env.action_shape) == 1
     action_lows, action_highs = map(np.array, env.action_ranges)
 
-    # Construct the network
-    network = Network(threads=args.threads)
-    network.construct(args, env.state_shape, env.action_shape[0], action_lows, action_highs)
+    models = ["model_115"]
 
-    #network.load('walker_hardcore/model_68')
+    for m in models:
 
-    # Replay memory; maxlen parameter can be passed to deque for a size limit,
-    # which we however do not need in this simple task.
-    replay_buffer = collections.deque(maxlen=500000)
-    Transition = collections.namedtuple("Transition", ["state", "action", "reward", "done", "next_state"])
+        # Construct the network
+        network = Network(threads=args.threads)
+        network.construct(args, env.state_shape, env.action_shape[0], action_lows, action_highs)
+        network.load(m)
 
-    def evaluate_episode(evaluating=False):
-        rewards = 0
-        state, done = env.reset(evaluating), False
-        while not done:
-            if args.render_each and env.episode > 0 and env.episode % args.render_each == 90:
-                env.render()
-
-            action = network.predict_actions([state])[0]
-            state, reward, done, _ = env.step(action)
-            rewards += reward
-        return rewards
-
-    noise = OrnsteinUhlenbeckNoise(env.action_shape[0], 0., args.noise_theta, args.noise_sigma)
-    best_score = 0
-
-    noise_sigma = args.noise_sigma
-    episodes = 0
-
-    while True:
-        # Training
-        for _ in range(args.evaluate_each):
-            state, done = env.reset(), False
-            noise.reset()
-
-            steps = 0
-
+        def evaluate_episode(evaluating=True):
+            rewards = 0
+            state, done = env.reset(evaluating), False
             while not done:
-                action = network.predict_actions([state])[0] + np.random.normal(0, noise_sigma, size=env.action_shape)
-                next_state, reward, done, _ = env.step(action)
+                if args.render_each and env.episode > 0 and env.episode % args.render_each == 0:
+                   env.render()
 
-                if steps >= args.max_steps and not done:
-                    done = True
-                    reward -= 100
+                action = network.predict_actions([state])[0]
+                state, reward, done, _ = env.step(action)
+                rewards += reward
+            return rewards
 
-                replay_buffer.append(Transition(state, action, reward, done, next_state))
-
-                # If the replay_buffer is large enough, perform training
-                if len(replay_buffer) >= args.batch_size:
-                    batch = np.random.choice(len(replay_buffer), size=args.batch_size, replace=False)
-                    states, actions, rewards, dones, next_states = zip(*[replay_buffer[i] for i in batch])
-                    rewards = [r if r > -7 else -7 for r in rewards]
-
-                    if steps % args.d == 0:
-                        network.train(states, next_states, actions, rewards, dones)
-                    else:
-                        network.critic_train(states, next_states, actions, rewards, dones)
-
-                state = next_state
-                steps += 1
-
-            episodes += 1
-
-        # Evaluation
         returns = []
-        for _ in range(args.evaluate_for):
+        while True:
             returns.append(evaluate_episode())
-
-        average_return = np.mean(returns)
-        print("Evaluation of {} episodes: {}".format(args.evaluate_for, np.mean(returns)))
-
-        if average_return > best_score or average_return > 300:
-            best_score = average_return
-            checkpoint_path = "walker_hardcore/model_{s}".format(s=int(best_score))
-            print("Best score improved to {s}, saving {p}".format(s=best_score, p=checkpoint_path))
-            network.save(checkpoint_path)
-
-
-

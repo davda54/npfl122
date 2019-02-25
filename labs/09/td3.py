@@ -3,6 +3,8 @@ import collections
 
 import numpy as np
 import tensorflow as tf
+import math
+from itertools import chain
 
 import gym_evaluator
 
@@ -16,11 +18,13 @@ class Network:
 
     def construct(self, args, state_shape, action_components, action_lows, action_highs):
         with self.session.graph.as_default():
-            self.states = tf.placeholder(tf.float32, [None] + state_shape)
-            self.next_states = tf.placeholder(tf.float32, [None] + state_shape)
+            self.states = tf.placeholder(tf.float32, [None, state_shape])
+            self.next_states = tf.placeholder(tf.float32, [None, state_shape])
             self.actions = tf.placeholder(tf.float32, [None, action_components])
             self.rewards = tf.placeholder(tf.float32, [None])
             self.done = tf.placeholder(tf.bool, [None])
+
+            self.is_training = tf.placeholder(tf.bool, [], name="is_training")
 
             self.returns = tf.placeholder(tf.float32, [None])
 
@@ -34,7 +38,11 @@ class Network:
                 # [actions_lows[i]..action_highs[i]], for example using tf.nn.sigmoid
                 # and suitable rescaling.
                 actor_hidden = tf.layers.dense(inputs, args.hidden_layer, activation=tf.nn.relu)
+                actor_hidden = tf.layers.dropout(actor_hidden, args.dropout, training=self.is_training)
+
                 actor_hidden = tf.layers.dense(actor_hidden, args.hidden_layer, activation=tf.nn.relu)
+                actor_hidden = tf.layers.dropout(actor_hidden, args.dropout, training=self.is_training)
+
                 actor_hidden = tf.layers.dense(actor_hidden, action_components, activation=tf.nn.sigmoid)
                 return actor_hidden*(action_highs - action_lows) + action_lows
 
@@ -51,10 +59,18 @@ class Network:
                 # through a hidden layer first, and then concatenated with `actions` and fed
                 # through two more hidden layers, before computing the returns.
                 input_hidden = tf.layers.dense(inputs, args.hidden_layer, activation=tf.nn.relu)
+                input_hidden = tf.layers.dropout(input_hidden, args.dropout, training=self.is_training)
+
                 critic_hidden = tf.concat([input_hidden, actions], 1)
                 critic_hidden = tf.layers.dense(critic_hidden, args.hidden_layer, activation=tf.nn.relu)
+                critic_hidden = tf.layers.dropout(critic_hidden, args.dropout, training=self.is_training)
+
                 critic_hidden = tf.layers.dense(critic_hidden, args.hidden_layer, activation=tf.nn.relu)
-                return tf.layers.dense(critic_hidden, 1)[:, 0]
+                critic_hidden = tf.layers.dropout(critic_hidden, args.dropout, training=self.is_training)
+
+                critic_output = tf.layers.dense(critic_hidden, 1)[:, 0]
+
+                return critic_output
 
             with tf.variable_scope("critic_1"):
                 values_of_given_1 = critic(self.states, self.actions)
@@ -126,13 +142,13 @@ class Network:
             self.session.run(tf.global_variables_initializer())
 
     def predict_actions(self, states):
-        return self.session.run(self.mus, {self.states: states})
+        return self.session.run(self.mus, {self.is_training: False, self.states: states})
 
     def train(self, states, next_states, actions, rewards, done):
-        self.session.run([self.training, self.target_updating], {self.states: states, self.next_states: next_states, self.actions: actions, self.rewards: rewards, self.done: done})
+        self.session.run([self.training, self.target_updating], {self.is_training: True, self.states: states, self.next_states: next_states, self.actions: actions, self.rewards: rewards, self.done: done})
 
     def critic_train(self, states, next_states, actions, rewards, done):
-        self.session.run([self.critic_training, self.target_critic_updating], {self.states: states, self.next_states: next_states, self.actions: actions, self.rewards: rewards, self.done: done})
+        self.session.run([self.critic_training, self.target_critic_updating], {self.is_training: True, self.states: states, self.next_states: next_states, self.actions: actions, self.rewards: rewards, self.done: done})
 
     def save(self, path):
         self.saver.save(self.session, path, write_meta_graph=False, write_state=False)
@@ -171,19 +187,20 @@ if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser()
     parser.add_argument("--batch_size", default=128, type=int, help="Batch size.")
-    parser.add_argument("--env", default="BipedalWalkerHardcore-v2", type=str, help="Environment.")
+    parser.add_argument("--dropout", default=0.0, type=float, help="Dropout rate.")
+    parser.add_argument("--env", default="BipedalWalker-v2", type=str, help="Environment.")
     parser.add_argument("--evaluate_each", default=90, type=int, help="Evaluate each number of episodes.")
-    parser.add_argument("--evaluate_for", default=20, type=int, help="Evaluate for number of batches.")
-    parser.add_argument("--noise_sigma", default=0.1, type=float, help="UB noise sigma.")
+    parser.add_argument("--evaluate_for", default=10, type=int, help="Evaluate for number of batches.")
+    parser.add_argument("--noise_sigma", default=0.15, type=float, help="UB noise sigma.")
     parser.add_argument("--noise_theta", default=0.15, type=float, help="UB noise theta.")
     parser.add_argument("--gamma", default=1.0, type=float, help="Discounting factor.")
-    parser.add_argument("--hidden_layer", default=256, type=int, help="Size of hidden layer.")
-    parser.add_argument("--critic_learning_rate", default=0.0001, type=float, help="Critic learning rate.")
-    parser.add_argument("--actor_learning_rate", default=0.0001, type=float, help="Actor learning rate.")
+    parser.add_argument("--hidden_layer", default=128, type=int, help="Size of hidden layer.")
+    parser.add_argument("--critic_learning_rate", default=0.001, type=float, help="Critic learning rate.")
+    parser.add_argument("--actor_learning_rate", default=0.001, type=float, help="Actor learning rate.")
     parser.add_argument("--render_each", default=100, type=int, help="Render some episodes.")
     parser.add_argument("--target_tau", default=0.005, type=float, help="Target network update weight.")
-    parser.add_argument("--threads", default=2, type=int, help="Maximum number of threads to use.")
-    parser.add_argument("--max_steps", default=2000, type=int)
+    parser.add_argument("--threads", default=4, type=int, help="Maximum number of threads to use.")
+    parser.add_argument("--max_steps", default=2500, type=int)
     parser.add_argument("--d", default=2, type=int, help="Train actor each *d* steps.")
     args = parser.parse_args()
 
@@ -194,9 +211,7 @@ if __name__ == "__main__":
 
     # Construct the network
     network = Network(threads=args.threads)
-    network.construct(args, env.state_shape, env.action_shape[0], action_lows, action_highs)
-
-    #network.load('walker_hardcore/model_68')
+    network.construct(args, env.state_shape[0], env.action_shape[0], action_lows, action_highs)
 
     # Replay memory; maxlen parameter can be passed to deque for a size limit,
     # which we however do not need in this simple task.
@@ -206,44 +221,56 @@ if __name__ == "__main__":
     def evaluate_episode(evaluating=False):
         rewards = 0
         state, done = env.reset(evaluating), False
+        state = enhance_state(state, 0)
+        steps = 0
         while not done:
             if args.render_each and env.episode > 0 and env.episode % args.render_each == 90:
                 env.render()
 
             action = network.predict_actions([state])[0]
             state, reward, done, _ = env.step(action)
+            state = enhance_state(state, steps)
             rewards += reward
+            steps += 1
         return rewards
+
+    def enhance_state(state, step):
+        #out_state = np.append(state, [step / args.max_steps * 2 - 1])
+        #out_state[0] = out_state[0] / math.pi
+        #out_state[8] = out_state[8]*2 - 1
+        #out_state[13] = out_state[13]*2 - 1
+
+        #return out_state
+        return state
+
 
     noise = OrnsteinUhlenbeckNoise(env.action_shape[0], 0., args.noise_theta, args.noise_sigma)
     best_score = 0
-
-    noise_sigma = args.noise_sigma
-    episodes = 0
 
     while True:
         # Training
         for _ in range(args.evaluate_each):
             state, done = env.reset(), False
+            state = enhance_state(state, 0)
             noise.reset()
-
             steps = 0
 
             while not done:
-                action = network.predict_actions([state])[0] + np.random.normal(0, noise_sigma, size=env.action_shape)
+                action = network.predict_actions([state])[0] + noise.sample()
                 next_state, reward, done, _ = env.step(action)
 
                 if steps >= args.max_steps and not done:
                     done = True
-                    reward -= 100
+                    reward -= 20
 
+                next_state = enhance_state(next_state, steps)
                 replay_buffer.append(Transition(state, action, reward, done, next_state))
 
                 # If the replay_buffer is large enough, perform training
                 if len(replay_buffer) >= args.batch_size:
                     batch = np.random.choice(len(replay_buffer), size=args.batch_size, replace=False)
                     states, actions, rewards, dones, next_states = zip(*[replay_buffer[i] for i in batch])
-                    rewards = [r if r > -7 else -7 for r in rewards]
+                    rewards = [r if r > -10 else -10 for r in rewards]
 
                     if steps % args.d == 0:
                         network.train(states, next_states, actions, rewards, dones)
@@ -252,8 +279,6 @@ if __name__ == "__main__":
 
                 state = next_state
                 steps += 1
-
-            episodes += 1
 
         # Evaluation
         returns = []
@@ -265,7 +290,7 @@ if __name__ == "__main__":
 
         if average_return > best_score or average_return > 300:
             best_score = average_return
-            checkpoint_path = "walker_hardcore/model_{s}".format(s=int(best_score))
+            checkpoint_path = "walker/model_{s}".format(s=int(best_score))
             print("Best score improved to {s}, saving {p}".format(s=best_score, p=checkpoint_path))
             network.save(checkpoint_path)
 
